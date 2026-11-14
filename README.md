@@ -172,6 +172,14 @@ ready-to-publish/<book>/    generated per book (not in git): interior.pdf, cover
 | *Account information incomplete* | Save as Draft → finish tax interview + bank details in your KDP account → publish. |
 | Build failed in the app | The message shows the error; the print check lists what to fix. |
 
+| The app says | Fix |
+|---|---|
+| *Input prompt contains NSFW content* | A false alarm from Cloudflare's filter on ordinary words (e.g. "nebula"). The app now retries automatically with plainer wording; if one picture is still blocked, the rest are made and you can press **Regenerate** for it. |
+| *Cloudflare's free daily allowance is used up* | The free tier makes roughly 50-60 pictures a day (about 2 books). It resets at 00:00 UTC; pictures already made are kept. |
+
+Always look through every page before publishing: AI pictures sometimes contain stray letters
+or odd details - press **Regenerate** on those in **2 AI Images**.
+
 ---
 
 © mahimj-books. All rights reserved.

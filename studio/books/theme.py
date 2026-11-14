@@ -41,12 +41,21 @@ def missing_images(book_dir, spec):
 
 
 def generate_images(book_dir, spec, settings=None, log=print, stop=lambda: False):
+    """Make every missing picture. One failed picture doesn't stop the rest; failures are listed at the end."""
     todo = missing_images(book_dir, spec)
+    failed = []
     for n, (path, subject, color) in enumerate(todo, 1):
         if stop():
             return False
         log(f"Picture {n}/{len(todo)}: {subject}{' (cover, colour)' if color else ''}")
-        images.generate_image(path, subject, settings, color=color)
+        try:
+            images.generate_image(path, subject, settings, color=color)
+        except images.QuotaError:
+            raise
+        except images.ImageAPIError as e:
+            failed.append(f"{subject}{' (cover)' if color else ''}: {e}")
+    if failed:
+        raise images.ImageAPIError(f"{len(failed)} of {len(todo)} pictures could not be made:\n\n" + "\n".join(failed))
     return True
 
 

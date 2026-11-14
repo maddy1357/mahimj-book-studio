@@ -26,6 +26,10 @@ class ImageAPIError(Exception):
     pass
 
 
+class QuotaError(ImageAPIError):
+    """The provider's free daily allowance is used up - stop instead of failing every remaining picture."""
+
+
 def _err(r):
     try:
         j = r.json()
@@ -83,6 +87,9 @@ def generate_cloudflare(prompt, s):
             errs = r.json().get("errors") or r.text[:300]
         except Exception:
             errs = r.text[:300]
+        if r.status_code == 429 or "4006" in str(errs) or "daily free allocation" in str(errs):
+            raise QuotaError("Cloudflare's free daily allowance is used up. It resets every day at 00:00 UTC "
+                             "(5:30 AM India time). Pictures already made are kept - continue after the reset.")
         raise ImageAPIError(f"{r.status_code}: {errs}")
     return base64.b64decode(r.json()["result"]["image"])
 
@@ -139,14 +146,64 @@ def colour_square(raw_bytes, size=1600):
     return out.resize((size, size), Image.LANCZOS)
 
 
+# Plainer wording used when a provider's safety filter wrongly flags a prompt
+# (Cloudflare blocks e.g. "nebula" or "black hole" next to "for toddlers").
+SAFE_STYLE = ("A simple black and white colouring page showing one {word}. Thick, clean, smooth black outlines. "
+              "No shading, no grey, no colour, no text, no letters. Plain white background. "
+              "One single centred subject with large open areas to colour. Cartoon style.")
+SAFE_COLOR_STYLE = ("A colourful cartoon illustration of one {word}. Bright flat colours, thick dark outlines, "
+                    "plain white background, centred, no text, no letters.")
+
+
+def _blocked(err):
+    t = str(err).lower()
+    return any(k in t for k in ("nsfw", "safety", "moderation", "content policy", "content_policy"))
+
+
+def _plain_description(word, s):
+    """Ask the text AI to describe the subject in everyday picture words (e.g. nebula -> swirly cloud with stars)."""
+    from . import text
+    r = text.ask_json(
+        "You describe a simple, friendly cartoon drawing for a children's colouring book in plain everyday words: "
+        "shapes, objects, plants, animals, weather, sky. Never mention bodies, skin, clothing, darkness, danger "
+        "or violence. Do not repeat the subject word.",
+        f'Subject: "{word}". Describe the drawing in at most 12 words.',
+        text.obj({"description": text.STR}), s)
+    return r["description"].strip().rstrip(".")
+
+
 def generate_image(out_path, word, settings=None, color=False):
-    """Any subject -> print-ready picture. color=False: B&W line art for pages; True: cover art."""
+    """Any subject -> print-ready picture. color=False: B&W line art for pages; True: cover art.
+    If the provider's safety filter wrongly blocks the subject, retries with plainer wording and then
+    with a plain description of the subject written by the text AI."""
     s = settings or load_settings()
     fn = PROVIDERS.get(s.get("provider", "cloudflare"))
     if fn is None:
         raise ImageAPIError(f"Unknown provider {s.get('provider')}")
-    style = COLOR_STYLE if color else s.get("prompt_style", DEFAULT_PROMPT_STYLE)
-    raw = fn(style.replace("{word}", word.lower()), s)
+    styles = [COLOR_STYLE, SAFE_COLOR_STYLE] if color else [s.get("prompt_style", DEFAULT_PROMPT_STYLE), SAFE_STYLE]
+    subjects = [word.lower()]
+    raw, tried_description = None, False
+    while raw is None:
+        for subject in subjects:
+            for style in styles:
+                try:
+                    raw = fn(style.replace("{word}", subject), s)
+                    break
+                except Exception as e:
+                    if not _blocked(e):
+                        raise
+            if raw is not None:
+                break
+        if raw is None:
+            if tried_description:
+                raise ImageAPIError(
+                    f"The image AI's safety filter blocked the picture “{word}” (a false alarm on an ordinary word). "
+                    "Press Regenerate for it in the AI Images tab, or change that subject.")
+            tried_description = True
+            try:
+                subjects = [_plain_description(word, s), _plain_description(word, s)]
+            except Exception:
+                subjects = []
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     (colour_square(raw) if color else clean_line_art(raw)).save(out_path, optimize=True)
     return out_path

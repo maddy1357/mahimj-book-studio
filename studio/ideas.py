@@ -133,6 +133,15 @@ def change(idea, settings=None, items=None, save=True, reason=""):
     return new
 
 
+_COUNT_RE = re.compile(r"\b(\d{1,3})(?=(?:\s+[\w-]+){0,3}?\s+(?:pictures|designs|illustrations|images|scenes|"
+                       r"objects|animals|vehicles|things|subjects|colouring pages|coloring pages)\b)", re.I)
+
+
+def fix_picture_count(text, n):
+    """The AI sometimes promises e.g. '24 pictures' for a 20-picture book - make the text match the book."""
+    return _COUNT_RE.sub(lambda m: str(n) if 5 <= int(m.group(1)) <= 200 else m.group(1), text)
+
+
 def create_book(idea):
     """Approved idea -> new book folder with book-spec.json (pictures + PDFs are built next)."""
     slug = re.sub(r"[^a-z0-9]+", "-", idea["title"].lower()).strip("-")[:50] or "book"
@@ -145,6 +154,10 @@ def create_book(idea):
     spec = {k: idea[k] for k in ("title", "subtitle", "theme", "audience", "age_min", "age_max", "page_subjects",
                                  "description_html", "keywords", "categories", "features", "back_heading",
                                  "back_text", "marketing")}
+    n = len(spec["page_subjects"])
+    spec["features"] = [fix_picture_count(f, n) for f in spec.get("features") or []]
+    for k in ("back_text", "description_html"):
+        spec[k] = fix_picture_count(spec.get(k) or "", n)
     spec["author"] = AUTHOR
     spec["idea"] = {k: idea.get(k) for k in ("why_it_sells", "differentiation", "market_note")}
     with open(os.path.join(book_dir, "book-spec.json"), "w", encoding="utf-8") as f:
