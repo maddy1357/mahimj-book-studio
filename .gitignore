@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+*.tmp
+
+# Private: KDP login session (cookies) - never commit
+.kdp-browser-profile/
+
+# Generated books, previews and uploads (rebuilt by the app)
+ready-to-publish/
+kdp-debug/
+
+# Third-party / private material that must not be published
+new-work/
+/*.pdf
+
+# Large logo mock-ups (not used by the app)
+company-logo/sample.png
+company-logo/samplefoIT.png
+company-logo/logoWithName.png
