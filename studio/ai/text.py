@@ -13,7 +13,7 @@ import re
 
 import requests
 
-import ai_images
+from ..config import load_settings
 
 CLAUDE_MODEL = "claude-opus-5-5"
 CF_TEXT_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
@@ -92,7 +92,7 @@ def _cloudflare(system, prompt, schema, s):
 
 
 def ask_json(system, prompt, schema, settings=None, images=None):
-    s = settings or ai_images.load_settings()
+    s = settings or load_settings()
     if s.get("llm_provider", "cloudflare") == "claude":
         return _claude(system, prompt, schema, s, images)
     return _cloudflare(system, prompt, schema, s)

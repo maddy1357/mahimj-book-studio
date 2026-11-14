@@ -56,7 +56,7 @@ pip install -r requirements.txt
 python app.py
 ```
 
-Tip: create a desktop shortcut to `pythonw.exe app.py` (with `company-logo/app.ico` as its icon)
+Tip: create a desktop shortcut to `pythonw.exe app.py` (with `assets/brand/app.ico` as its icon)
 to start it without a console window.
 
 ### Set up the AI (once)
@@ -70,8 +70,10 @@ Open **2 AI Images** and press **Save settings** after filling in:
 | **Anthropic API key** | paid | Text AI **Claude Opus 5.5** - best listings, ideas and book analysis (can read the book's pages) |
 | OpenAI / Stability keys | paid | Pictures (optional) |
 
-Cloudflare: sign up at dash.cloudflare.com → copy the **Account ID** → My Profile → API Tokens →
-*Create Token* → template **Workers AI**. Keys are saved only on your PC in
+**Free Cloudflare key (3 minutes):** sign up at dash.cloudflare.com → *Account Home* → **⋮** next to
+your account → *Copy account ID*. Then *Manage account → Account API tokens* (or My Profile → API Tokens)
+→ *Create Token* → template **Workers AI** (permissions *Workers AI Read + Write*) → *Create Token* →
+copy the token (shown only once). Keys are saved only on your PC in
 `%APPDATA%\mahimj-books\settings.json` - never in this folder or the repository.
 
 ---
@@ -129,26 +131,35 @@ share sample pages on Pinterest/Instagram · ask for honest reviews (never pay f
 ## Project layout
 
 ```
-app.py                       the desktop app (6 tabs)
-run.bat                      install + start
+app.py                      start the app (python app.py) - run.bat does the same
+run.bat                     install packages + start
 requirements.txt
-company-logo/                logo.png, name.png, app.ico
-tools/
-  build.py                   rebuild any book (dispatches by type)
-  build_alphabet_book.py     the original A-Z book (vector art or AI art)
-  build_theme_book.py        books created from an approved idea
-  analyze_book.py            import + analyse any PDF
-  ideas.py                   next-book ideas, duplicate check, growth playbook
-  cover_builder.py           wrap-around cover for any trim size
-  finalize.py                listing, previews, print-safe files, KDP print check, copy sheet
-  kdp_rules.py               trims, spine, printing cost, royalty thresholds, store prices
-  ai_images.py               image AI (Cloudflare, Hugging Face, OpenAI, Stability) + line-art cleaning
-  llm.py                     text AI (Cloudflare Llama free / Claude Opus 5.5)
-  copy_sheet.py              KDP copy sheet (in-app tab + HTML page)
-  canva_kit.py               Canva round trip for covers
-  kdp_upload.py              fills KDP in Edge as a draft (Playwright)
-ready-to-publish/<book>/     output per book (ignored by git): interior.pdf, cover.pdf,
-                             cover-front.jpg, kdp-listing.json, kdp-copy-sheet.html, previews
+assets/brand/               logo.png, name.png, app.ico  (replace these to rebrand)
+studio/
+  config.py                 paths, brand/author, settings (keys stay in %APPDATA%), per-book files
+  ui/
+    app.py                  the 6-tab window
+    widgets.py              colours, clipboard (text + formatted HTML), scrolling panel
+  books/
+    design.py               shared design kit: fonts, page size, drawing helpers, bubble letters, logo, front pages
+    alphabet_art.py         the 26 original A-Z vector drawings
+    alphabet.py             the A-Z Alphabet Colouring Book
+    theme.py                colouring books created from an approved idea
+    importer.py             import + analyse any book PDF
+    cover.py                wrap-around cover for any trim size
+    finalize.py             cover choice, listing, print-safe PDFs, KDP print check, copy sheet
+    build.py                rebuild any book:  python -m studio.books.build ready-to-publish/<book>
+  ai/
+    images.py               picture AI (Cloudflare free, Hugging Face, OpenAI, Stability) + line-art cleaning
+    text.py                 text AI (Cloudflare Llama free / Claude Opus 5.5)
+  kdp/
+    rules.py                trims, spine, cover size, printing cost, 60% royalty thresholds, store prices
+    copy_sheet.py           KDP copy sheet (app tab + kdp-copy-sheet.html)
+    uploader.py             fills KDP in Edge as a draft (Playwright) - never presses Publish
+  ideas.py                  next-book ideas, duplicate check, growth playbook
+  canva.py                  Canva cover kit + checked import
+ready-to-publish/<book>/    generated per book (not in git): interior.pdf, cover.pdf, cover-front.jpg,
+                            kdp-listing.json, kdp-copy-sheet.html, book-config.json, ai-images/
 ```
 
 ## Troubleshooting

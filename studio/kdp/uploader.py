@@ -7,7 +7,7 @@ uploads interior.pdf + cover.pdf.
 
 Safety rules built in:
   * Your password is never seen or stored by this script - you type it in
-    the browser. The login session is kept in kdp-book/.kdp-browser-profile.
+    the browser. The login session is kept in .kdp-browser-profile/ (private, not in git).
   * It NEVER clicks "Publish". It stops so you can review and publish yourself.
   * It does not assign the free ISBN (that choice is permanent) - you click it.
 
@@ -16,7 +16,7 @@ then by its visible label. If a field still can't be found the script says
 which one and keeps going. It also saves the page's field list (names/labels
 only - never values) to <book_dir>/kdp-debug/ so selectors can be fixed.
 
-Usage: python kdp_upload.py <book_dir>
+Used by the app's "Upload to KDP" tab (run(book_dir, log_fn)).
 """
 import json
 import os
@@ -27,10 +27,11 @@ import time
 from playwright.sync_api import TimeoutError as PWTimeout
 from playwright.sync_api import sync_playwright
 
+from ..config import BROWSER_PROFILE
+
 KDP_HOME = "https://kdp.amazon.com/en_US/bookshelf"
 KDP_NEW_PAPERBACK = "https://kdp.amazon.com/en_US/title-setup/paperback/new/details?ref_=cr_ti"
-HERE = os.path.dirname(os.path.abspath(__file__))
-PROFILE_DIR = os.path.abspath(os.path.join(HERE, "..", ".kdp-browser-profile"))
+PROFILE_DIR = BROWSER_PROFILE
 
 done, todo = [], []
 BOOK_DIR = None

@@ -1,86 +1,24 @@
 """
-mahimj-books :: AI images for colouring pages
+Image AI: one picture per subject from your chosen provider, cleaned for print.
 
-Generates one picture per letter with an image API (your own key), then cleans
-it into pure black & white line art at print resolution.
+  cloudflare   FREE  Workers AI, FLUX.1-schnell (Apache-2.0, commercial use allowed)
+  huggingface  free credits, FLUX.1-schnell
+  openai       paid  (model e.g. gpt-image-1)
+  stability    paid
 
-Providers
-  openai     POST https://api.openai.com/v1/images/generations   (model e.g. gpt-image-1)
-  stability  POST https://api.stability.ai/v2beta/stable-image/generate/core
-
-Settings (provider, model, quality, keys, prompt style) are stored per Windows
-user in %APPDATA%\\mahimj-books\\settings.json - never inside the book folder.
+Page pictures become pure black & white line art at 2400 px (~640 DPI on the page);
+cover pictures stay in colour. Keys come from config.load_settings() (stored on this PC only).
 """
 import base64
 import io
-import json
 import os
 
 import requests
 from PIL import Image, ImageFilter, ImageOps
 
-SETTINGS_PATH = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "mahimj-books", "settings.json")
-DEFAULT_STYLE = ("A simple black and white colouring page for toddlers showing one cute {word}. "
-                 "Thick, clean, smooth black outlines. No shading, no grey, no colour, no text, no letters. "
-                 "Plain white background. One single centred subject with large open areas to colour. "
-                 "Cute cartoon style.")
-DEFAULTS = {
-    "llm_provider": "cloudflare",      # text AI: cloudflare (free) | claude (best)
-    "anthropic_key": "",
-    "claude_model": "claude-opus-5-5",
-    "provider": "cloudflare",
-    "cf_account_id": "",
-    "cf_token": "",
-    "hf_token": "",
-    "openai_model": "gpt-image-1",
-    "openai_quality": "medium",
-    "openai_key": "",
-    "stability_key": "",
-    "prompt_style": DEFAULT_STYLE,
-}
-PRINT_PX = 2400          # cleaned image size; ~640 DPI at the 3.75 in picture area
+from ..config import DEFAULT_PROMPT_STYLE, load_settings
 
-
-# ---------------------------------------------------------------------------
-def load_settings():
-    s = dict(DEFAULTS)
-    try:
-        with open(SETTINGS_PATH, encoding="utf-8") as f:
-            s.update(json.load(f))
-    except Exception:
-        pass
-    return s
-
-
-def save_settings(s):
-    os.makedirs(os.path.dirname(SETTINGS_PATH), exist_ok=True)
-    with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
-        json.dump(s, f, indent=2)
-
-
-def book_config(book_dir):
-    try:
-        with open(os.path.join(book_dir, "book-config.json"), encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {"art_source": "vector", "cover_source": "generated"}
-
-
-def save_book_config(book_dir, cfg):
-    with open(os.path.join(book_dir, "book-config.json"), "w", encoding="utf-8") as f:
-        json.dump(cfg, f, indent=2)
-
-
-def art_dir(book_dir):
-    return os.path.join(book_dir, "ai-images")
-
-
-def image_path(book_dir, letter):
-    return os.path.join(art_dir(book_dir), f"{letter}.png")
-
-
-def prompt_for(word, settings):
-    return settings.get("prompt_style", DEFAULT_STYLE).replace("{word}", word.lower())
+PRINT_PX = 2400          # cleaned line-art size; ~640 DPI at the 3.75 in picture area
 
 
 # ---------------------------------------------------------------------------
@@ -207,21 +145,8 @@ def generate_image(out_path, word, settings=None, color=False):
     fn = PROVIDERS.get(s.get("provider", "cloudflare"))
     if fn is None:
         raise ImageAPIError(f"Unknown provider {s.get('provider')}")
-    style = COLOR_STYLE if color else s.get("prompt_style", DEFAULT_STYLE)
+    style = COLOR_STYLE if color else s.get("prompt_style", DEFAULT_PROMPT_STYLE)
     raw = fn(style.replace("{word}", word.lower()), s)
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     (colour_square(raw) if color else clean_line_art(raw)).save(out_path, optimize=True)
     return out_path
-
-
-def generate_letter(book_dir, letter, word, settings=None):
-    s = settings or load_settings()
-    fn = PROVIDERS.get(s.get("provider", "openai"))
-    if fn is None:
-        raise ImageAPIError(f"Unknown provider {s.get('provider')}")
-    raw = fn(prompt_for(word, s), s)
-    os.makedirs(art_dir(book_dir), exist_ok=True)
-    with open(os.path.join(art_dir(book_dir), f"{letter}-raw.png"), "wb") as f:
-        f.write(raw)
-    clean_line_art(raw).save(image_path(book_dir, letter), optimize=True)
-    return image_path(book_dir, letter)

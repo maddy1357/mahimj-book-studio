@@ -10,11 +10,10 @@ __pycache__/
 ready-to-publish/
 kdp-debug/
 
-# Third-party / private material that must not be published
-new-work/
+# Never publish PDFs dropped in the project root
 /*.pdf
 
 # Large logo mock-ups (not used by the app)
-company-logo/sample.png
-company-logo/samplefoIT.png
-company-logo/logoWithName.png
+assets/brand/sample.png
+assets/brand/samplefoIT.png
+assets/brand/logoWithName.png

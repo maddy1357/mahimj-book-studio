@@ -1,33 +1,24 @@
 """
-mahimj-books :: import ANY finished book PDF and get it ready for KDP.
-
-import_book(pdf, description) ->
-  1. copies the PDF into ready-to-publish/<name>/interior.pdf
-  2. analyses it: page count, trim size, bleed, colour, text, other people's brands/copyright
+Import ANY finished book PDF and get it ready for KDP:
+  1. copies it to ready-to-publish/<name>/interior.pdf (original kept in imported/)
+  2. analyses it: page count, trim size, bleed, colour pages, text, other people's brands/copyright
   3. text AI writes the listing (title, subtitle, description, 7 keywords, 3 categories, age, low-content)
   4. builds a matching wrap-around cover from the book's own pages
   5. prices for every Amazon store, KDP print check, copy sheet
-
-Usage: python analyze_book.py <file.pdf> ["what the book is about"]
 """
-import json
 import os
 import re
 import shutil
-import sys
 
 import numpy as np
 import pymupdf
 
-import ai_images
-import build_alphabet_book as B
-import cover_builder
-import finalize
-import kdp_rules
-import llm
-
-HERE = os.path.dirname(os.path.abspath(__file__))
-READY = os.path.abspath(os.path.join(HERE, "..", "ready-to-publish"))
+from .. import config
+from ..ai import text as llm
+from ..config import AUTHOR, BRAND, READY
+from ..kdp import rules as kdp_rules
+from . import cover as cover_builder
+from . import finalize
 
 LISTING_SCHEMA = llm.obj({
     "title": llm.STR, "subtitle": llm.STR, "book_type": llm.STR,
@@ -77,7 +68,7 @@ def analyse_pdf(pdf_path):
     for i in sample_idx:
         samples.append(doc[i].get_pixmap(dpi=45).tobytes("png"))
     found = sorted({m.group(0).strip()[:60] for m in BRAND_RE.finditer(text)})
-    own = (B.BRAND.lower(), B.AUTHOR.lower(), "mahimj")
+    own = (BRAND.lower(), AUTHOR.lower(), "mahimj")
     flags = [f for f in found if not any(o in f.lower() for o in own)]
     return {"pages": len(doc), "page_w": round(w, 4), "page_h": round(h, 4), "trim": trim,
             "text": text[:12000], "colour_pages": colour_pages, "rights_flags": flags[:12],
@@ -110,7 +101,7 @@ def ask_listing(info, description, filename, settings=None):
     prompt = (f"File name: {filename}\nPages: {info['pages']}\nPage size: {info['page_w']} x {info['page_h']} in\n"
               f"Colour pages: {info['colour_pages']} of {info['pages']}\n"
               f"Publisher's own description: {description or '(none given)'}\n"
-              f"Author: {B.AUTHOR}  Imprint: {B.BRAND}\n\nText found in the book (may be empty for picture books):\n"
+              f"Author: {AUTHOR}  Imprint: {BRAND}\n\nText found in the book (may be empty for picture books):\n"
               f"{info['text'][:8000]}")
     return llm.ask_json(SYSTEM, prompt, LISTING_SCHEMA, settings, images=info["samples"])
 
@@ -133,12 +124,12 @@ def import_book(pdf_path, description="", settings=None, log=print, listing_over
     cfg = {"builder": "imported", "art_source": "imported", "cover_source": "generated",
            "description": description, "meta": meta,
            "analysis": {k: v for k, v in info.items() if k not in ("samples", "text")}}
-    ai_images.save_book_config(book_dir, cfg)
+    config.save_book_config(book_dir, cfg)
     return rebuild(book_dir, log=log)
 
 
 def rebuild(book_dir, log=print):
-    cfg = ai_images.book_config(book_dir)
+    cfg = config.book_config(book_dir)
     meta, a = cfg["meta"], cfg["analysis"]
     trim = a.get("trim")
     if trim:
@@ -147,14 +138,12 @@ def rebuild(book_dir, log=print):
         tw, th, bleed = a["page_w"], a["page_h"], False
     pages = a["pages"]
     thumbs = picture_pages(os.path.join(book_dir, "interior.pdf"), os.path.join(book_dir, "imported"))
-    canva = os.path.join(book_dir, "cover-canva.pdf")
     age = f"{meta['reading_age_min']}-{meta['reading_age_max']}" if meta.get("reading_age_max") else None
     cover_builder.build_cover(os.path.join(book_dir, "cover-generated.pdf"), tw, th, pages, "white", meta["title"],
-                              meta["subtitle"], B.AUTHOR, meta["back_heading"], meta["back_text"],
+                              meta["subtitle"], AUTHOR, meta["back_heading"], meta["back_text"],
                               meta["features"], thumbs, age_badge=age)
-    shutil.copyfile(canva if cfg.get("cover_source") == "canva" and os.path.exists(canva)
-                    else os.path.join(book_dir, "cover-generated.pdf"), os.path.join(book_dir, "cover.pdf"))
-    L = finalize.base_listing(meta["title"], meta["subtitle"], B.AUTHOR, meta["description_html"],
+    finalize.choose_cover(book_dir)
+    L = finalize.base_listing(meta["title"], meta["subtitle"], AUTHOR, meta["description_html"],
                               meta["keywords"], meta["categories"], meta.get("reading_age_min", 0),
                               meta.get("reading_age_max", 0), tw, th, pages, bleed,
                               low_content=meta.get("low_content", False),
@@ -163,19 +152,9 @@ def rebuild(book_dir, log=print):
                                      "rights_confirmed": cfg.get("rights_confirmed", False)})
     if a["colour_pages"]:
         L["print"]["ink_and_paper"] += f"  (NOTE: {a['colour_pages']} pages have colour - choose a colour option in KDP if you want it printed in colour)"
-    problems = []
-    if not trim:
-        problems.append(f"page size {a['page_w']} x {a['page_h']} in is not a KDP trim size - export the PDF at a KDP size")
-    probs, warnings = finalize.finalize(book_dir, L, strict_margins=bool(not trim or not trim[2]))
-    problems += probs
-    if problems != probs:
-        L["preflight"]["problems"] = problems
-        L["preflight"]["passed"] = False
-        with open(os.path.join(book_dir, "kdp-listing.json"), "w", encoding="utf-8") as f:
-            json.dump(L, f, indent=2)
+    extra = [] if trim else [f"page size {a['page_w']} x {a['page_h']} in is not a KDP trim size - "
+                             "export the PDF at a KDP size"]
+    problems, _ = finalize.finalize(book_dir, L, strict_margins=bool(not trim or not trim[2]), extra_problems=extra)
     log(f"KDP print check: {'PASSED' if not problems else 'PROBLEMS: ' + '; '.join(problems)}")
     return book_dir
 
-
-if __name__ == "__main__":
-    print(import_book(os.path.abspath(sys.argv[1]), sys.argv[2] if len(sys.argv) > 2 else ""))

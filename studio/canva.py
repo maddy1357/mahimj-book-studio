@@ -1,31 +1,25 @@
 """
-mahimj-books :: Canva round trip for the book cover
+Canva round trip for a book's cover.
 
-make_kit(book_dir)          -> <book_dir>/canva-kit/  (exact KDP size guide, current cover,
-                               logos, every A-Z picture in colour as transparent PNG, README)
+make_kit(book_dir)          -> <book>/canva-kit/: exact KDP size guide, current cover, logos,
+                               the book's pictures (transparent PNG for the A-Z book), README
 import_cover(book_dir, pdf) -> checks the Canva PDF against KDP's cover size and uses it
 use_generated_cover(book_dir)
 """
-import json
+import glob
 import os
 import shutil
 
 import pymupdf
 from PIL import Image, ImageDraw, ImageFont
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-LOGO_DIR = os.path.abspath(os.path.join(HERE, "..", "company-logo"))
+from .config import BRAND_DIR, art_dir, book_config, load_listing, save_book_config
 BLEED_IN, SAFE_IN = 0.125, 0.25
 BARCODE_W_IN, BARCODE_H_IN = 2.0, 1.2
 
 
-def _listing(book_dir):
-    with open(os.path.join(book_dir, "kdp-listing.json"), encoding="utf-8") as f:
-        return json.load(f)
-
-
 def cover_size(book_dir):
-    c = _listing(book_dir)["print"]["cover_size_in"]
+    c = load_listing(book_dir)["print"]["cover_size_in"]
     return c["width"], c["height"], c["spine"]
 
 
@@ -88,24 +82,14 @@ def make_kit(book_dir):
         gen = os.path.join(book_dir, "cover.pdf")
     pymupdf.open(gen)[0].get_pixmap(dpi=200).save(os.path.join(kit, "2-current-cover.png"))
     for name in ("logo.png", "name.png"):
-        src = os.path.join(LOGO_DIR, name)
+        src = os.path.join(BRAND_DIR, name)
         if os.path.exists(src):
             shutil.copyfile(src, os.path.join(kit, "3-" + name))
 
-    # every picture in colour on a transparent background
-    import build_alphabet_book as B
-    from reportlab.pdfgen import canvas
-    tmp = os.path.join(kit, "_tmp.pdf")
-    for letter, word, fn in B.LETTERS:
-        c = canvas.Canvas(tmp, pagesize=(220, 220))
-        B.draw_picture(c, fn, 10, 10, 200, B.Fill(color=True), lw=2.6)
-        c.save()
-        name = f"{letter}-{word.lower().replace(' ', '-')}.png"
-        pymupdf.open(tmp)[0].get_pixmap(dpi=450, alpha=True).save(os.path.join(art, name))
-    os.remove(tmp)
+    _copy_pictures(book_dir, art)
 
     with open(os.path.join(kit, "README.txt"), "w", encoding="utf-8") as f:
-        f.write(f"""CANVA COVER KIT - {_listing(book_dir)['title']}
+        f.write(f"""CANVA COVER KIT - {load_listing(book_dir)['title']}
 
 1. In Canva: Create a design > Custom size > units: in
       Width  {W:.3f} in
@@ -147,15 +131,37 @@ def import_cover(book_dir, pdf_path):
                        "(without 'Crop marks and bleed').")
     doc.close()
     shutil.copyfile(pdf_path, os.path.join(book_dir, "cover-canva.pdf"))
-    import ai_images
-    cfg = ai_images.book_config(book_dir)
-    cfg["cover_source"] = "canva"
-    ai_images.save_book_config(book_dir, cfg)
+    _set_cover_source(book_dir, "canva")
     return True, f"Canva cover imported ({w:.3f} x {h:.3f} in). Rebuilding the book to use it."
 
 
 def use_generated_cover(book_dir):
-    import ai_images
-    cfg = ai_images.book_config(book_dir)
-    cfg["cover_source"] = "generated"
-    ai_images.save_book_config(book_dir, cfg)
+    _set_cover_source(book_dir, "generated")
+
+
+def _set_cover_source(book_dir, source):
+    cfg = book_config(book_dir)
+    cfg["cover_source"] = source
+    save_book_config(book_dir, cfg)
+
+
+def _copy_pictures(book_dir, out):
+    """A-Z book: every vector drawing in colour on a transparent background.
+    Other books: their AI pictures (colour cover art first), or the imported book's page thumbnails."""
+    if os.path.exists(os.path.join(book_dir, "book-spec.json")) or book_config(book_dir).get("builder") == "imported":
+        files = sorted(glob.glob(os.path.join(art_dir(book_dir), "cover-*.png"))) +             sorted(glob.glob(os.path.join(art_dir(book_dir), "[0-9]*.png"))) +             sorted(glob.glob(os.path.join(book_dir, "imported", "thumb-*.png")))
+        for f in files:
+            shutil.copyfile(f, os.path.join(out, os.path.basename(f)))
+        return
+    from reportlab.pdfgen import canvas
+
+    from .books.alphabet_art import LETTERS
+    from .books.design import Fill, draw_picture
+    tmp = os.path.join(out, "_tmp.pdf")
+    for letter, word, fn in LETTERS:
+        c = canvas.Canvas(tmp, pagesize=(220, 220))
+        draw_picture(c, fn, 10, 10, 200, Fill(color=True), lw=2.6)
+        c.save()
+        with pymupdf.open(tmp) as d:
+            d[0].get_pixmap(dpi=450, alpha=True).save(os.path.join(out, f"{letter}-{word.lower().replace(' ', '-')}.png"))
+    os.remove(tmp)

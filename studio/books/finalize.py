@@ -1,20 +1,64 @@
 """
-mahimj-books :: last step for every book type
-listing -> previews -> cover images -> print-safe files -> KDP print check -> copy sheet
+Last step for every book type:
+choose cover -> listing -> cover images -> print-safe files -> KDP print check -> copy sheet.
 """
-import json
+import hashlib
 import os
 import re
+import shutil
 
 import numpy as np
 import pymupdf
 
-import build_alphabet_book as B
-import copy_sheet
-import kdp_rules
+from ..config import AUTHOR, BRAND, book_config, save_listing
+from ..kdp import copy_sheet
+from ..kdp import rules as kdp_rules
 
 
-def cover_images(book_dir, trim_w, trim_h, spine):
+def choose_cover(book_dir):
+    """cover.pdf = the Canva design if one was imported for this book, else the app's own cover."""
+    canva = os.path.join(book_dir, "cover-canva.pdf")
+    use_canva = book_config(book_dir).get("cover_source") == "canva" and os.path.exists(canva)
+    shutil.copyfile(canva if use_canva else os.path.join(book_dir, "cover-generated.pdf"),
+                    os.path.join(book_dir, "cover.pdf"))
+    return "canva" if use_canva else "generated"
+
+
+def make_print_safe(book_dir, title, cover_dpi=300):
+    """Make the upload files as easy as possible for KDP's file processor.
+    cover.pdf    -> one flattened 300 DPI image on a page of the exact KDP size (no fonts or vector
+                    parts left to fail on); the vector original is kept as cover-vector.pdf.
+    interior.pdf -> every embedded font gets a unique subset tag (ReportLab names them all
+                    'AAAAAA+', which some print checkers reject as duplicates)."""
+    cv = os.path.join(book_dir, "cover.pdf")
+    vec = os.path.join(book_dir, "cover-vector.pdf")
+    shutil.copyfile(cv, vec)
+    with pymupdf.open(vec) as src:
+        pg = src[0]
+        jpg = pg.get_pixmap(dpi=cover_dpi).tobytes(output="jpg", jpg_quality=95)
+        out = pymupdf.open()
+        page = out.new_page(width=pg.rect.width, height=pg.rect.height)
+        page.insert_image(page.rect, stream=jpg)
+    out.set_metadata({"title": f"{title} - Cover", "author": AUTHOR, "creator": BRAND, "producer": BRAND})
+    out.save(cv + ".tmp", garbage=4, deflate=True)
+    out.close()
+    os.replace(cv + ".tmp", cv)
+
+    ip = os.path.join(book_dir, "interior.pdf")
+    doc = pymupdf.open(ip)
+    for xref in range(1, doc.xref_length()):
+        for key in ("BaseFont", "FontName"):
+            t, v = doc.xref_get_key(xref, key)
+            if t == "name" and len(v) > 8 and v[7] == "+":
+                base = v[8:]
+                tag = "".join(chr(65 + b % 26) for b in hashlib.md5(base.encode()).digest()[:6])
+                doc.xref_set_key(xref, key, f"/{tag}+{base}")
+    doc.save(ip + ".tmp", garbage=3, deflate=True)
+    doc.close()
+    os.replace(ip + ".tmp", ip)
+
+
+def write_cover_images(book_dir, trim_w, trim_h, spine):
     pg = pymupdf.open(os.path.join(book_dir, "cover.pdf"))[0]
     bl = kdp_rules.BLEED_IN * 72
     front = pymupdf.Rect(bl + trim_w * 72 + spine * 72, bl, bl + 2 * trim_w * 72 + spine * 72, bl + trim_h * 72)
@@ -80,23 +124,17 @@ def preflight(book_dir, L, strict_margins=True):
     return sorted(set(problems)), sorted(set(warnings))
 
 
-def finalize(book_dir, L, strict_margins=True, interior_safe=True):
+def finalize(book_dir, L, strict_margins=True, extra_problems=()):
+    """Write the listing, export cover images, make the PDFs print-safe, run the KDP print check
+    (problems block upload, warnings don't) and write the copy sheet. Returns (problems, warnings)."""
     p = L["print"]
-    lp = os.path.join(book_dir, "kdp-listing.json")
-    with open(lp, "w", encoding="utf-8") as f:
-        json.dump(L, f, indent=2)
-    B.write_previews(book_dir)
-    cover_images(book_dir, p["trim_w"], p["trim_h"], p["cover_size_in"]["spine"])
-    old_title = B.TITLE
-    B.TITLE = L["title"]
-    try:
-        B.make_print_safe(book_dir) if interior_safe else None
-    finally:
-        B.TITLE = old_title
+    save_listing(book_dir, L)
+    write_cover_images(book_dir, p["trim_w"], p["trim_h"], p["cover_size_in"]["spine"])
+    make_print_safe(book_dir, L["title"])
     problems, warnings = preflight(book_dir, L, strict_margins)
+    problems = sorted(set(problems) | set(extra_problems))
     L["preflight"] = {"passed": not problems, "problems": problems, "warnings": warnings}
-    with open(lp, "w", encoding="utf-8") as f:
-        json.dump(L, f, indent=2)
+    save_listing(book_dir, L)
     copy_sheet.make(book_dir)
     return problems, warnings
 
@@ -111,7 +149,7 @@ def base_listing(title, subtitle, author, description_html, keywords, categories
     L = {
         "format": "paperback", "language": "English",
         "title": title, "subtitle": subtitle, "author": author,
-        "publisher_imprint": B.BRAND, "copyright_holder": B.BRAND,
+        "publisher_imprint": BRAND, "copyright_holder": BRAND,
         "description": description_html,
         "keywords": [k[:50] for k in keywords][:7],
         "categories_suggested": categories[:3],

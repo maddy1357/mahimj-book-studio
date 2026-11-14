@@ -14,11 +14,9 @@ import os
 import re
 import time
 
-import build_alphabet_book as B
-import llm
+from .ai import text as llm
+from .config import AUTHOR, BRAND, READY
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-READY = os.path.abspath(os.path.join(HERE, "..", "ready-to-publish"))
 IDEAS_FILE = os.path.join(READY, "_ideas.json")
 
 IDEA = llm.obj({
@@ -32,7 +30,7 @@ IDEA = llm.obj({
 })
 IDEAS = llm.obj({"ideas": {"type": "array", "items": IDEA}})
 
-SYSTEM = (f"You plan the next Amazon KDP paperback for the small children's publisher {B.BRAND} (author {B.AUTHOR}). "
+SYSTEM = (f"You plan the next Amazon KDP paperback for the small children's publisher {BRAND} (author {AUTHOR}). "
           "The publisher makes 8.5 x 11 in single-sided colouring books with big, simple AI line-art pictures "
           "(one subject per page, the subject's name printed under it). Suggest books that are realistic to make "
           "this way and that sell: evergreen or seasonal themes, a clear audience, and a fresh angle. "
@@ -147,7 +145,7 @@ def create_book(idea):
     spec = {k: idea[k] for k in ("title", "subtitle", "theme", "audience", "age_min", "age_max", "page_subjects",
                                  "description_html", "keywords", "categories", "features", "back_heading",
                                  "back_text", "marketing")}
-    spec["author"] = B.AUTHOR
+    spec["author"] = AUTHOR
     spec["idea"] = {k: idea.get(k) for k in ("why_it_sells", "differentiation", "market_note")}
     with open(os.path.join(book_dir, "book-spec.json"), "w", encoding="utf-8") as f:
         json.dump(spec, f, indent=2)

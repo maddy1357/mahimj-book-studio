@@ -1,22 +1,22 @@
 """
-mahimj-books :: KDP copy sheet
-Generates <book_dir>/kdp-copy-sheet.html - every KDP field in the same order
-as KDP's three tabs (Details / Content / Rights & Pricing), each with a Copy
-button, so the listing can be pasted into KDP by hand.
+KDP copy sheet: every field of KDP's three paperback pages (Details / Content /
+Rights & Pricing) in KDP's own order, with the value to paste or option to pick.
 
-Usage: python copy_sheet.py <book_dir>
+build_sections() feeds the app's "KDP Copy Sheet" tab; make() also writes
+<book>/kdp-copy-sheet.html (same sheet with Copy buttons, for any browser).
 """
 import base64
 import html
 import io
 import json
 import os
-import sys
+import re
 
 from PIL import Image
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-LOGO = os.path.join(HERE, "..", "company-logo", "logo.png")
+from ..config import BRAND_DIR, load_listing
+
+LOGO = os.path.join(BRAND_DIR, "logo.png")
 
 
 def logo_data_uri():
@@ -32,7 +32,6 @@ def logo_data_uri():
 
 
 def strip_html(s):
-    import re
     s = re.sub(r"</(p|li|ul)>", "\n", s)
     s = re.sub(r"<li>", "• ", s)
     s = re.sub(r"<[^>]+>", "", s)
@@ -78,10 +77,6 @@ def _price_rows(L):
         rows.append(("copy", "List price – Amazon.com (USD)", f"{L.get('price_usd_suggested', '')}", ""))
     return rows
 
-
-def load_listing(book_dir):
-    with open(os.path.join(book_dir, "kdp-listing.json"), encoding="utf-8") as f:
-        return json.load(f)
 
 
 def build_sections(book_dir, L=None):
@@ -330,7 +325,3 @@ document.querySelectorAll('button.copy').forEach(b => b.addEventListener('click'
     with open(out, "w", encoding="utf-8") as f:
         f.write(page)
     return out
-
-
-if __name__ == "__main__":
-    print(make(os.path.abspath(sys.argv[1])))
